@@ -5,9 +5,10 @@ from __future__ import annotations
 import base64
 import hashlib
 from pathlib import Path
-from typing import Iterable
+from typing import Any, Iterable
 
 import fitz  # PyMuPDF
+from pydantic import BaseModel
 from pypdf import PdfReader
 
 from document_models import ChunkDocumento, PaginaExtraida
@@ -33,6 +34,76 @@ def parse_pdf_text(pdf_path: str | Path) -> list[PaginaExtraida]:
             )
         )
     return paginas
+
+
+def extraer_paginas(pdf_path: str | Path, *, use_ocr: bool = True) -> list[dict[str, Any]]:
+    """Compatibilidad con la API didáctica anterior: devuelve páginas con metadatos."""
+    paginas = parse_pdf_text(pdf_path)
+    if not use_ocr:
+        return [
+            {
+                "text": pagina.text,
+                "metadata": {
+                    "source": pagina.source,
+                    "page": pagina.page,
+                    "extraction_method": pagina.extraction_method,
+                },
+            }
+            for pagina in paginas
+        ]
+    return [
+        {
+            "text": pagina.text,
+            "metadata": {
+                "source": pagina.source,
+                "page": pagina.page,
+                "extraction_method": pagina.extraction_method,
+            },
+        }
+        for pagina in paginas
+    ]
+
+
+def crear_chunks(
+    paginas: Iterable[dict[str, Any] | PaginaExtraida],
+    *,
+    max_chars: int = 500,
+    overlap: int = 100,
+) -> list[dict[str, Any]]:
+    """Versión compatible con los tests: genera chunks con metadata de procedencia."""
+    if max_chars <= 0:
+        raise ValueError("max_chars debe ser > 0")
+    if overlap >= max_chars:
+        raise ValueError("overlap debe ser menor que max_chars")
+
+    output: list[dict[str, Any]] = []
+    for pagina in paginas:
+        if isinstance(pagina, BaseModel):
+            text = pagina.text
+            source = pagina.source
+            page = pagina.page
+            extraction_method = pagina.extraction_method
+        else:
+            text = pagina["text"]
+            metadata = pagina.get("metadata", {})
+            source = metadata.get("source", "unknown.pdf")
+            page = metadata.get("page", 1)
+            extraction_method = metadata.get("extraction_method", "unknown")
+
+        pieces = chunk_text(text, chunk_size=max_chars, overlap=overlap)
+        for idx, piece in enumerate(pieces, start=1):
+            output.append(
+                {
+                    "text": piece,
+                    "metadata": {
+                        "source": source,
+                        "page": page,
+                        "chunk_id": f"{source}-p{page}-c{idx}",
+                        "extraction_method": extraction_method,
+                    },
+                }
+            )
+    return output
 
 
 def pdf_page_to_png_bytes(pdf_path: str | Path, page_number: int, dpi: int = 180) -> bytes:

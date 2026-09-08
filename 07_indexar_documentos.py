@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any, cast
 
 from config import build_client, load_settings
 from document_models import PaginaExtraida
@@ -35,13 +36,16 @@ def extraer_documento(path: Path) -> list[PaginaExtraida]:
         image_bytes = pdf_page_to_png_bytes(path, page_number)
         response = client.responses.create(
             model=settings.vision_model,
-            input=[{
-                "role": "user",
-                "content": [
-                    {"type": "input_text", "text": "Transcribe fielmente todo el texto visible. No resumas."},
-                    {"type": "input_image", "image_url": image_bytes_to_data_url(image_bytes)},
-                ],
-            }],
+            input=cast(
+                Any,
+                [{
+                    "role": "user",
+                    "content": [
+                        {"type": "input_text", "text": "Transcribe fielmente todo el texto visible. No resumas."},
+                        {"type": "input_image", "image_url": image_bytes_to_data_url(image_bytes)},
+                    ],
+                }],
+            ),
         )
         extraidas.append(PaginaExtraida(
             source=path.name,
